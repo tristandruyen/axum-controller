@@ -1,7 +1,7 @@
 use quote::ToTokens;
 use syn::{spanned::Spanned, LitBool, LitInt, Pat, PatType};
 
-use crate::parsing::{OapiOptions, Responses, Security, StrArray};
+use crate::parsing::{Responses, Security, StrArray};
 
 use self::parsing::PathParam;
 
@@ -14,7 +14,6 @@ pub struct CompiledRoute {
     pub query_params: Vec<(Ident, Box<Type>)>,
     pub state: Type,
     pub route_lit: LitStr,
-    pub oapi_options: Option<OapiOptions>,
 }
 
 impl CompiledRoute {
@@ -47,25 +46,7 @@ impl CompiledRoute {
     }
 
     /// Removes the arguments in `route` from `args`, and merges them in the output.
-    pub fn from_route(mut route: Route, function: &ItemFn, with_aide: bool) -> syn::Result<Self> {
-        if !with_aide && route.oapi_options.is_some() {
-            return Err(syn::Error::new(
-                Span::call_site(),
-                "Use `api_route` instead of `route` to use OpenAPI options",
-            ));
-        } else if with_aide && route.oapi_options.is_none() {
-            route.oapi_options = Some(OapiOptions {
-                summary: None,
-                description: None,
-                id: None,
-                hidden: None,
-                tags: None,
-                security: None,
-                responses: None,
-                transform: None,
-            });
-        }
-
+    pub fn from_route(mut route: Route, function: &ItemFn) -> syn::Result<Self> {
         let sig = &function.sig;
         let mut arg_map = sig
             .inputs
@@ -120,17 +101,12 @@ impl CompiledRoute {
             query_params.push((ident, ty));
         }
 
-        if let Some(options) = route.oapi_options.as_mut() {
-            options.merge_with_fn(function)
-        }
-
         Ok(Self {
             route_lit: route.route_lit,
             method: route.method,
             path_params: route.path_params,
             query_params,
             state: route.state.unwrap_or_else(|| guess_state_type(sig)),
-            oapi_options: route.oapi_options,
         })
     }
 
@@ -163,16 +139,13 @@ impl CompiledRoute {
         })
     }
 
-    pub fn query_params_struct(&self, with_aide: bool) -> Option<TokenStream2> {
+    pub fn query_params_struct(&self ) -> Option<TokenStream2> {
         match self.query_params.is_empty() {
             true => None,
             false => {
                 let idents = self.query_params.iter().map(|item| &item.0);
                 let types = self.query_params.iter().map(|item| &item.1);
-                let derive = match with_aide {
-                    true => quote! { #[derive(::serde::Deserialize, ::schemars::JsonSchema)] },
-                    false => quote! { #[derive(::serde::Deserialize)] },
-                };
+                let derive =  quote! { #[derive(::serde::Deserialize)] };
                 Some(quote! {
                     #derive
                     struct __QueryParams__ {
@@ -236,155 +209,6 @@ impl CompiledRoute {
             .collect()
     }
 
-    pub fn ide_documentation_for_aide_methods(&self) -> TokenStream2 {
-        let Some(options) = &self.oapi_options else {
-            return quote! {};
-        };
-        let summary = options.summary.as_ref().map(|(ident, _)| {
-            let method = Ident::new("summary", ident.span());
-            quote!( let x = x.#method(""); )
-        });
-        let description = options.description.as_ref().map(|(ident, _)| {
-            let method = Ident::new("description", ident.span());
-            quote!( let x = x.#method(""); )
-        });
-        let id = options.id.as_ref().map(|(ident, _)| {
-            let method = Ident::new("id", ident.span());
-            quote!( let x = x.#method(""); )
-        });
-        let hidden = options.hidden.as_ref().map(|(ident, _)| {
-            let method = Ident::new("hidden", ident.span());
-            quote!( let x = x.#method(false); )
-        });
-        let tags = options.tags.as_ref().map(|(ident, _)| {
-            let method = Ident::new("tag", ident.span());
-            quote!( let x = x.#method(""); )
-        });
-        let security = options.security.as_ref().map(|(ident, _)| {
-            let method = Ident::new("security_requirement_scopes", ident.span());
-            quote!( let x = x.#method("", [""]); )
-        });
-        let responses = options.responses.as_ref().map(|(ident, _)| {
-            let method = Ident::new("response", ident.span());
-            quote!( let x = x.#method::<0, String>(); )
-        });
-        let transform = options.transform.as_ref().map(|(ident, _)| {
-            let method = Ident::new("with", ident.span());
-            quote!( let x = x.#method(|x|x); )
-        });
-
-        quote! {
-            #[allow(unused)]
-            #[allow(clippy::no_effect)]
-            fn ____ide_documentation_for_aide____(x: ::aide::transform::TransformOperation) {
-                #summary
-                #description
-                #id
-                #hidden
-                #tags
-                #security
-                #responses
-                #transform
-            }
-        }
-    }
-
-    pub fn get_oapi_summary(&self) -> Option<LitStr> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some(summary) = &oapi_options.summary {
-                return Some(summary.1.clone());
-            }
-        }
-        None
-    }
-
-    pub fn get_oapi_description(&self) -> Option<LitStr> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some(description) = &oapi_options.description {
-                return Some(description.1.clone());
-            }
-        }
-        None
-    }
-
-    pub fn get_oapi_hidden(&self) -> Option<LitBool> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some(hidden) = &oapi_options.hidden {
-                return Some(hidden.1.clone());
-            }
-        }
-        None
-    }
-
-    pub fn get_oapi_tags(&self) -> Vec<LitStr> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some(tags) = &oapi_options.tags {
-                return tags.1 .0.clone();
-            }
-        }
-        Vec::new()
-    }
-
-    pub fn get_oapi_id(&self, sig: &Signature) -> Option<LitStr> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some(id) = &oapi_options.id {
-                return Some(id.1.clone());
-            }
-        }
-        Some(LitStr::new(&sig.ident.to_string(), sig.ident.span()))
-    }
-
-    pub fn get_oapi_transform(&self) -> syn::Result<Option<TokenStream2>> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some(transform) = &oapi_options.transform {
-                if transform.1.inputs.len() != 1 {
-                    return Err(syn::Error::new(
-                        transform.1.span(),
-                        "expected a single identifier",
-                    ));
-                }
-
-                let pat = transform.1.inputs.first().unwrap();
-                let body = &transform.1.body;
-
-                if let Pat::Ident(pat_ident) = pat {
-                    let ident = &pat_ident.ident;
-                    return Ok(Some(quote! {
-                        let #ident = __op__;
-                        let __op__ = #body;
-                    }));
-                } else {
-                    return Err(syn::Error::new(
-                        pat.span(),
-                        "expected a single identifier without type",
-                    ));
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    pub fn get_oapi_responses(&self) -> Vec<(LitInt, Type)> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some((_ident, Responses(responses))) = &oapi_options.responses {
-                return responses.clone();
-            }
-        }
-        Default::default()
-    }
-
-    pub fn get_oapi_security(&self) -> Vec<(LitStr, Vec<LitStr>)> {
-        if let Some(oapi_options) = &self.oapi_options {
-            if let Some((_ident, Security(security))) = &oapi_options.security {
-                return security
-                    .iter()
-                    .map(|(scheme, StrArray(scopes))| (scheme.clone(), scopes.clone()))
-                    .collect();
-            }
-        }
-        Default::default()
-    }
-
     pub(crate) fn to_doc_comments(&self) -> TokenStream2 {
         let mut doc = format!(
             "# Handler information
@@ -395,52 +219,6 @@ impl CompiledRoute {
             self.route_lit.value(),
             self.state.to_token_stream(),
         );
-
-        if let Some(options) = &self.oapi_options {
-            let summary = options
-                .summary
-                .as_ref()
-                .map(|(_, summary)| format!("\"{}\"", summary.value()))
-                .unwrap_or("None".to_string());
-            let description = options
-                .description
-                .as_ref()
-                .map(|(_, description)| format!("\"{}\"", description.value()))
-                .unwrap_or("None".to_string());
-            let id = options
-                .id
-                .as_ref()
-                .map(|(_, id)| format!("\"{}\"", id.value()))
-                .unwrap_or("None".to_string());
-            let hidden = options
-                .hidden
-                .as_ref()
-                .map(|(_, hidden)| hidden.value().to_string())
-                .unwrap_or("None".to_string());
-            let tags = options
-                .tags
-                .as_ref()
-                .map(|(_, tags)| tags.to_string())
-                .unwrap_or("[]".to_string());
-            let security = options
-                .security
-                .as_ref()
-                .map(|(_, security)| security.to_string())
-                .unwrap_or("{}".to_string());
-
-            doc = format!(
-                "{doc}
-                
-## OpenAPI
-- Summary: `{summary}`
-- Description: `{description}`
-- Operation id: `{id}`
-- Tags: `{tags}`
-- Security: `{security}`
-- Hidden: `{hidden}`
-"
-            );
-        }
 
         quote!(
             #[doc = #doc]

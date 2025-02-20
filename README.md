@@ -2,6 +2,6 @@
 [![Documentation](https://docs.rs/axum-typed-routing/badge.svg)](https://docs.rs/axum-typed-routing)
 
 # Axum-typed-routing
-A library for creating statically-typed handlers in axum using macros, similar to Rocket with OpenAPI support using [aide](https://docs.rs/aide/0.12.0/aide/index.html). 
+A library for creating statically-typed routers+handlers in axum using macros, similar to Rocket.
 
-See the [docs](https://docs.rs/axum-typed-routing) for more information.
+See the [docs](https://docs.rs/axum-controller) for more information.

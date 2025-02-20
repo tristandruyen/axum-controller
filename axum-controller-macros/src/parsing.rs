@@ -128,17 +128,6 @@ impl PathParam {
     }
 }
 
-pub struct OapiOptions {
-    pub summary: Option<(Ident, LitStr)>,
-    pub description: Option<(Ident, LitStr)>,
-    pub id: Option<(Ident, LitStr)>,
-    pub hidden: Option<(Ident, LitBool)>,
-    pub tags: Option<(Ident, StrArray)>,
-    pub security: Option<(Ident, Security)>,
-    pub responses: Option<(Ident, Responses)>,
-    pub transform: Option<(Ident, ExprClosure)>,
-}
-
 pub struct Security(pub Vec<(LitStr, StrArray)>);
 impl Parse for Security {
     fn parse(input: ParseStream) -> syn::Result<Self> {
@@ -243,70 +232,6 @@ impl ToString for StrArray {
     }
 }
 
-impl Parse for OapiOptions {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut this = Self {
-            summary: None,
-            description: None,
-            id: None,
-            hidden: None,
-            tags: None,
-            security: None,
-            responses: None,
-            transform: None,
-        };
-
-        while !input.is_empty() {
-            let ident = input.parse::<Ident>()?;
-            let _ = input.parse::<Token![:]>()?;
-            match ident.to_string().as_str() {
-                "summary" => this.summary = Some((ident, input.parse()?)),
-                "description" => this.description = Some((ident, input.parse()?)),
-                "id" => this.id = Some((ident, input.parse()?)),
-                "hidden" => this.hidden = Some((ident, input.parse()?)),
-                "tags" => this.tags = Some((ident, input.parse()?)),
-                "security" => this.security = Some((ident, input.parse()?)),
-                "responses" => this.responses = Some((ident, input.parse()?)),
-                "transform" => this.transform = Some((ident, input.parse()?)),
-                _ => {
-                    return Err(syn::Error::new(
-                        ident.span(),
-                        "unexpected field, expected one of (summary, description, id, hidden, tags, security, responses, transform)",
-                    ))
-                }
-            }
-            let _ = input.parse::<Token![,]>().ok();
-        }
-
-        Ok(this)
-    }
-}
-
-impl OapiOptions {
-    pub fn merge_with_fn(&mut self, function: &ItemFn) {
-        if self.description.is_none() {
-            self.description = doc_iter(&function.attrs)
-                .skip(2)
-                .map(|item| item.value())
-                .reduce(|mut acc, item| {
-                    acc.push('\n');
-                    acc.push_str(&item);
-                    acc
-                })
-                .map(|item| (parse_quote!(description), parse_quote!(#item)))
-        }
-        if self.summary.is_none() {
-            self.summary = doc_iter(&function.attrs)
-                .next()
-                .map(|item| (parse_quote!(summary), item.clone()))
-        }
-        if self.id.is_none() {
-            let id = &function.sig.ident;
-            self.id = Some((parse_quote!(id), LitStr::new(&id.to_string(), id.span())));
-        }
-    }
-}
-
 fn doc_iter(attrs: &[Attribute]) -> impl Iterator<Item = &LitStr> + '_ {
     attrs
         .iter()
@@ -331,7 +256,6 @@ pub struct Route {
     pub query_params: Vec<Ident>,
     pub state: Option<Type>,
     pub route_lit: LitStr,
-    pub oapi_options: Option<OapiOptions>,
 }
 
 impl Parse for Route {
@@ -343,14 +267,6 @@ impl Parse for Route {
             Ok(_) => Some(input.parse::<Type>()?),
             Err(_) => None,
         };
-        let oapi_options = input
-            .peek(Brace)
-            .then(|| {
-                let inner;
-                braced!(inner in input);
-                inner.parse::<OapiOptions>()
-            })
-            .transpose()?;
 
         Ok(Route {
             method,
@@ -358,7 +274,6 @@ impl Parse for Route {
             query_params: route_parser.query_params,
             state,
             route_lit,
-            oapi_options,
         })
     }
 }
