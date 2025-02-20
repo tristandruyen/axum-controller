@@ -15,9 +15,7 @@ async fn item_handler(
 
 struct TestController;
 
-#[controller(
-    path = "/asd"
-)]
+#[controller(path = "/asd")]
 impl TestController {}
 
 fn main() {

@@ -1,14 +1,16 @@
+#![feature(proc_macro_diagnostic)]
 use compilation::CompiledRoute;
 use parsing::{Method, Route};
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use std::collections::HashMap;
 use syn::{
+    meta::parser,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     token::{Comma, Slash},
-    Attribute, FnArg, GenericArgument, ItemFn, ItemImpl, LitStr, Meta, PathArguments, Signature,
-    Type,
+    Attribute, FnArg, GenericArgument, ItemFn, ItemImpl, Lit, LitStr, Meta, MetaNameValue, Path,
+    PathArguments, Signature, Type,
 };
 #[macro_use]
 extern crate quote;
@@ -134,36 +136,54 @@ fn _route(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream2> {
     })
 }
 
+#[derive(Debug, Clone, Default)]
 struct MyAttrs {
-    middleware: Vec<syn::Expr>,
-    path: Option<syn::Lit>,
+    middlewares: Vec<syn::Expr>,
+    path: Option<syn::Expr>,
     state: Option<syn::Expr>,
 }
+
 impl Parse for MyAttrs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut path: Option<syn::Expr> = None;
         let mut state: Option<syn::Expr> = None;
-        let mut middleware: Vec<syn::Expr> = Vec::new();
+        let mut middlewares: Vec<syn::Expr> = Vec::new();
 
         // parse while stuff returns
-        while let Ok(nv) = syn::MetaNameValue::parse(input) {
-            match nv.path {
-                Path("path") => {
-                    if path.is_none() {
-                        path = Some(nv.value.try_into()?)
-                    } else {
-                        compile_error!("Only a single path may be provided")
+        for nv in Punctuated::<MetaNameValue, Token![,]>::parse_terminated(input)?.into_iter() {
+            // syn::MetaNameValue::parse(input) {
+            let segs = nv.path.segments.clone().into_pairs();
+            let seg = segs.into_iter().next().unwrap().into_value();
+            let ident = seg.ident;
+            match ident.to_string().as_str() {
+                "path" => {
+                    if path.is_some() {
+                        return Err(syn::Error::new_spanned(path, "duplicate `path` attribute"));
                     }
+                    path = Some(nv.value);
+                    // panic!("{test:?}");
+                    // panic!("{nv:?}");
                 }
+                "state" => {
+                    if state.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            state,
+                            "duplicate `state` attribute",
+                        ));
+                    }
+                    state = Some(nv.value);
+                }
+                "middleware" => middlewares.push(nv.value),
                 _ => {
-                    compile_error!("Invalid attribute provided")
+                    panic!("123");
                 }
-                // "state" => state = nv.value.try_into()?,
-                  // "middleware" => middleware.push(nv.value.try_into()?),
             }
         }
-
-        todo!("");
+        Ok(Self {
+            state,
+            path,
+            middlewares,
+        })
     }
 }
 
@@ -171,7 +191,18 @@ impl Parse for MyAttrs {
 pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as MyAttrs);
     let item_impl = parse_macro_input!(item as ItemImpl);
+    // Punctuated<>
 
+    panic!("{item_impl:?}");
+    for item in item_impl.items.into_iter() {
+        proc_macro::Diagnostic::new(proc_macro::Level::Warning, "test").emit();
+        if let syn::ImplItem::Macro(inner) = item {
+            panic!("{inner:?}")
+        }
+        panic!("aaa{item:?}");
+    }
+
+    panic!("{args:?}");
     // let input = parse_macro_input!(input as ItemImpl);
 
     // let mut state_type = None;
