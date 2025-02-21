@@ -9,8 +9,8 @@ use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     token::{Comma, Slash},
-    Attribute, FnArg, GenericArgument, ItemFn, ItemImpl, Lit, LitStr, Meta, MetaNameValue, Path,
-    PathArguments, Signature, Type,
+    Attribute, FnArg, GenericArgument, Item, ItemFn, ItemImpl, Lit, LitStr, Meta, MetaNameValue,
+    Path, PathArguments, Signature, Type,
 };
 #[macro_use]
 extern crate quote;
@@ -187,22 +187,34 @@ impl Parse for MyAttrs {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct MyItem<F, _>
+where
+    F: Fn(_) -> String,
+{
+    typed_routing_fn: F,
+}
+
+impl<F: Fn(A), _> Parse for MyItem {
+    fn parse(input: ParseStream) -> syn::Result<Self> {}
+}
+
 #[proc_macro_attribute]
 pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as MyAttrs);
-    let item_impl = parse_macro_input!(item as ItemImpl);
+    let item_impl = parse_macro_input!(item as MyItem);
     // Punctuated<>
 
     panic!("{item_impl:?}");
     for item in item_impl.items.into_iter() {
         proc_macro::Diagnostic::new(proc_macro::Level::Warning, "test").emit();
-        if let syn::ImplItem::Macro(inner) = item {
+        if let syn::Item::Macro(inner) = item {
             panic!("{inner:?}")
         }
         panic!("aaa{item:?}");
     }
 
-    panic!("{args:?}");
+    panic!("bbb {args:?}");
     // let input = parse_macro_input!(input as ItemImpl);
 
     // let mut state_type = None;
